@@ -25,7 +25,7 @@ from clip_benchmark.models import MODEL_TYPES, load_clip
 def get_parser_args():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers()
-    
+
     parser_eval = subparsers.add_parser('eval', help='Evaluate')
     parser_eval.add_argument('--dataset', type=str, default="cifar10", nargs="+", help="Dataset(s) to use for the benchmark. Can be the name of a dataset, or a collection name ('vtab', 'vtab+', 'imagenet_robustness', 'retrieval') or path of a text file where each line is a dataset name")
     parser_eval.add_argument('--dataset_root', default="root", type=str, help="dataset root folder where the datasets are downloaded. Can be in the form of a template depending on dataset name, e.g., --dataset_root='datasets/{dataset}'. This is useful if you evaluate on multiple datasets.")
@@ -66,6 +66,7 @@ def get_parser_args():
     parser_eval.add_argument('--skip_existing', default=False, action="store_true", help="whether to skip an evaluation if the output file exists.")
     parser_eval.add_argument('--model_type', default="open_clip", type=str, choices=MODEL_TYPES, help="clip model type")
     parser_eval.add_argument('--wds_cache_dir', default=None, type=str, help="optional cache directory for webdataset only")
+    parser_eval.add_argument("--extra_args", default=None, type=str, help="optional extra_args to support quantized model initialization")
     parser_eval.set_defaults(which='eval')
 
     parser_build = subparsers.add_parser('build', help='Build CSV from evaluations')
@@ -144,7 +145,7 @@ def main_eval(base):
         else:
             # if not, assume it is simply the name of the dataset
             datasets.append(name)
-    
+
     train_splits = _as_list(base.train_split)
     train_splits = _single_option_to_multiple_datasets(train_splits, datasets, "train_split")
     proportions, val_splits = None, None
@@ -162,7 +163,7 @@ def main_eval(base):
             "val_split": val_splits[i] if val_splits is not None else None,
             "proportion": proportions[i] if proportions is not None else None
         }
-    
+
     # Get list of languages to evaluate on
     languages = _as_list(base.language)
 
@@ -232,10 +233,10 @@ def run(args):
     pretrained_slug_full_path = args.pretrained.replace('/', '_') if os.path.isfile(args.pretrained) else args.pretrained
     dataset_slug = dataset_name.replace('/', '_')
     output = args.output.format(
-        model=args.model, 
+        model=args.model,
         pretrained=pretrained_slug,
         pretrained_full_path=pretrained_slug_full_path,
-        task=task, 
+        task=task,
         dataset=dataset_slug,
         language=args.language
     )
@@ -254,7 +255,8 @@ def run(args):
             model_name=args.model,
             pretrained=args.pretrained,
             cache_dir=args.model_cache_dir,
-            device=args.device
+            device=args.device,
+            **simple_parse_args_string(args.extra_args)
         )
         model.eval()
         if args.model.count("nllb-clip") > 0:
@@ -263,10 +265,10 @@ def run(args):
 
             set_language(tokenizer, args.language)
         dataset = build_dataset(
-            dataset_name=args.dataset, 
-            root=dataset_root, 
-            transform=transform, 
-            split=args.split, 
+            dataset_name=args.dataset,
+            root=dataset_root,
+            transform=transform,
+            split=args.split,
             annotation_file=args.annotation_file,
             download=True,
             language=args.language,
@@ -291,13 +293,13 @@ def run(args):
 
         if args.dataset.startswith("wds/"):
             dataloader = torch.utils.data.DataLoader(
-                dataset.batched(args.batch_size), batch_size=None, 
+                dataset.batched(args.batch_size), batch_size=None,
                 shuffle=False, num_workers=args.num_workers,
             )
         else:
             dataloader = torch.utils.data.DataLoader(
-                dataset, batch_size=args.batch_size, 
-                shuffle=False, num_workers=args.num_workers, 
+                dataset, batch_size=args.batch_size,
+                shuffle=False, num_workers=args.num_workers,
                 collate_fn=collate_fn
             )
     if task == "zeroshot_classification":
@@ -307,23 +309,23 @@ def run(args):
         classnames = dataset.classes if hasattr(dataset, "classes") else None
         assert (zeroshot_templates is not None and classnames is not None), "Dataset does not support classification"
         metrics = zeroshot_classification.evaluate(
-            model, 
-            dataloader, 
-            tokenizer, 
-            classnames, zeroshot_templates, 
-            device=args.device, 
+            model,
+            dataloader,
+            tokenizer,
+            classnames, zeroshot_templates,
+            device=args.device,
             amp=args.amp,
             verbose=args.verbose,
             save_clf=args.save_clf,
             load_clfs=args.load_clfs,
-        ) 
+        )
     elif task == "zeroshot_retrieval":
         metrics = zeroshot_retrieval.evaluate(
-            model, 
-            dataloader, 
-            tokenizer, 
+            model,
+            dataloader,
+            tokenizer,
             recall_k_list=args.recall_k,
-            device=args.device, 
+            device=args.device,
             amp=args.amp
         )
     elif task == "image_caption_selection":
@@ -338,19 +340,19 @@ def run(args):
         # we also need the train and validation splits for linear probing.
         train_dataset = None
         train_dataset = build_dataset(
-            dataset_name=args.dataset, 
-            root=dataset_root, 
-            transform=transform, 
-            split=args.train_split, 
+            dataset_name=args.dataset,
+            root=dataset_root,
+            transform=transform,
+            split=args.train_split,
             annotation_file=args.annotation_file,
             download=True,
         )
         if args.val_split is not None:
             val_dataset = build_dataset(
-                dataset_name=args.dataset, 
-                root=dataset_root, 
-                transform=transform, 
-                split=args.val_split, 
+                dataset_name=args.dataset,
+                root=dataset_root,
+                transform=transform,
+                split=args.val_split,
                 annotation_file=args.annotation_file,
                 download=True,
             )
@@ -359,14 +361,14 @@ def run(args):
         else:
             val_dataset = None
         train_dataloader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=args.batch_size, 
-            shuffle=False, num_workers=args.num_workers, 
+            train_dataset, batch_size=args.batch_size,
+            shuffle=False, num_workers=args.num_workers,
             collate_fn=collate_fn, pin_memory=True,
         )
         if val_dataset is not None:
             val_dataloader = torch.utils.data.DataLoader(
-                val_dataset, batch_size=args.batch_size, 
-                shuffle=False, num_workers=args.num_workers, 
+                val_dataset, batch_size=args.batch_size,
+                shuffle=False, num_workers=args.num_workers,
                 collate_fn=collate_fn, pin_memory=True,
             )
         else:
@@ -374,7 +376,7 @@ def run(args):
         metrics = linear_probe.evaluate(
             model,
             train_dataloader,
-            dataloader, 
+            dataloader,
             args.fewshot_k,
             args.batch_size,
             args.num_workers,
@@ -384,18 +386,18 @@ def run(args):
             args.seed,
             args.feature_root,
             val_dataloader=val_dataloader,
-            device=args.device, 
+            device=args.device,
             normalize=args.normalize,
             amp=args.amp,
             verbose=args.verbose,
         )
     elif task == "captioning":
         metrics = captioning.evaluate(
-            model=model, 
-            dataloader=dataloader, 
+            model=model,
+            dataloader=dataloader,
             batch_size=args.batch_size,
             num_workers=args.num_workers,
-            device=args.device, 
+            device=args.device,
             amp=args.amp,
             verbose=args.verbose,
             transform=transform
@@ -418,7 +420,7 @@ def run(args):
         print(f"Dump results to: {output}")
     with open(output, "w") as f:
         json.dump(dump, f)
-    return 0
+    return dump
 
 
 def world_info_from_env():
@@ -439,6 +441,33 @@ def world_info_from_env():
             world_size = int(os.environ[v])
             break
     return local_rank, global_rank, world_size
+
+
+def simple_parse_args_string(args_string):
+    """
+    Parses something like
+        args1=val1,arg2=val2
+    Into a dictionary
+    """
+    if not args_string:
+        return {}
+    args_string = args_string.strip()
+    pairs = [pair for pair in args_string.split(",") if pair]
+    args_dict = {k: arg_str_type(v) for k, v in [pair.split("=") for pair in pairs]}
+    return args_dict
+
+
+def arg_str_type(arg):
+    if arg.lower() == "true":
+        return True
+    elif arg.lower() == "false":
+        return False
+    elif arg.isnumeric():
+        return int(arg)
+    try:
+        return float(arg)
+    except ValueError:
+        return arg
 
 
 if __name__ == "__main__":
