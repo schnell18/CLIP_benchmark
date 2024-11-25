@@ -33,5 +33,6 @@ def _quantize_model(model, model_name, **kwargs):
         quant_config = BaseQuantizeConfig(nbits=b, group_size=g)
 
     model = HQQOpenCLIP.wrap_model(model, model_name)
+    print(f"Using quant_config: {quant_config}")
     model.quantize_model(quant_config=quant_config)
     return model
