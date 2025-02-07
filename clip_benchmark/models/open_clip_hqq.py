@@ -27,6 +27,10 @@ def _quantize_model(model, model_name, **kwargs):
     if budget is not None:
         quant_config = BaseQuantizeConfig(budget=budget, mixed=True, quant_scale=True)
         quant_config["quant_metrics_file"] = kwargs.get("quant_metrics_file")
+        quant_config["weight_algo"] = kwargs.get("weight_algo", None)
+        quant_config["boost_stop"] = kwargs.get("boost_stop", None)
+        quant_config["ablation"] = kwargs.get("ablation", None)
+        quant_config["top_m_layer"] = kwargs.get("top_m_layer", None)
     else:
         b = kwargs.get("nbits", 4)
         g = kwargs.get("group_size", 64)
